@@ -33,7 +33,7 @@ except ImportError:
     import pyautogui
 
 class VoiceToText:
-    def __init__(self, engine="google", timeout=5, continuous=False, phrase_threshold=0.3, pause_threshold=0.8):
+    def __init__(self, engine="google", timeout=5, continuous=True, phrase_threshold=0.3, pause_threshold=0.8):
         """
         Initialize the Voice to Text tool.
         
@@ -189,8 +189,8 @@ def main():
                       default="google", help="Speech recognition engine to use")
     parser.add_argument("--timeout", "-t", type=int, default=5, 
                       help="Timeout in seconds for speech recognition")
-    parser.add_argument("--continuous", "-c", action="store_true", 
-                      help="Listen continuously until stopped")
+    parser.add_argument("--no-continuous", "-n", action="store_true", 
+                      help="Run in single shot mode instead of continuous mode")
     parser.add_argument("--phrase-threshold", "-p", type=float, default=0.3,
                       help="Seconds of speech needed to trigger recognition (default: 0.3)")
     parser.add_argument("--pause-threshold", "-P", type=float, default=0.8,
@@ -205,9 +205,7 @@ def main():
         logger.setLevel(logging.DEBUG)
     
     # Make continuous mode the default experience
-    continuous_mode = True if args.continuous else False
-    if not args.continuous:
-        print("Tip: Use --continuous (-c) for a seamless experience where you can speak multiple times")
+    continuous_mode = not args.no_continuous
     
     voice_to_text = VoiceToText(
         engine=args.engine,
