@@ -1,8 +1,45 @@
-SpeechRecognition>=3.8.1
-PyAudio>=0.2.11
-# pynput>=1.7.6
-# python-dotenv>=0.19.2
-# requests>=2.27.1
-# openai>=1.10.0
-# click>=8.1.3
+# Voice2Text - Core dependencies
+PyAudio>=0.2.13
+SpeechRecognition>=3.10.0
+numpy>=1.20.0
+pyyaml>=6.0
+pydantic>=2.0.0
+
+# Error suppression and system integration
+python-dotenv>=1.0.0
+ctypes-callable>=1.0.0
+
+# Text output methods (at least one required)
 pyautogui>=0.9.53
+keyboard>=0.13.5
+pynput>=1.7.6
+
+# Voice Activity Detection
+webrtcvad-wheels>=2.0.10
+
+# For testing
+pytest>=7.3.1
+pytest-mock>=3.10.0
+
+# Optional dependencies for specific engines
+# Uncomment based on which engines you want to use
+
+# Google Speech Recognition (included in SpeechRecognition)
+# google-cloud-speech>=2.19.0  # For Google Cloud Speech-to-Text API
+
+# Whisper (Local)
+# openai-whisper>=20231117
+# or
+# faster-whisper>=0.9.0
+
+# Whisper (API)
+# openai>=1.3.0
+
+# Deepgram
+# deepgram-sdk>=2.11.0
+
+# Groq (for Whisper via API)
+# groq>=0.4.0
+
+# Speechmatics
+# speechmatics>=1.4.0

@@ -1,0 +1,62 @@
+## Voice2Text Configuration File
+
+# Application Settings
+continuous: true          # Run in continuous mode (true) or one-shot mode (false)
+debug: false              # Enable debug logging
+quiet: true               # Suppress ALSA/JACK errors
+
+# Engine Settings
+engine: google            # Default speech recognition engine
+fallback_engine: null     # Fallback engine if primary not available
+language_code: en-US      # Default language for speech recognition
+
+# Audio Settings
+audio:
+  sample_rate: 16000      # Audio sample rate in Hz
+  channels: 1             # Audio channels (1 = mono, 2 = stereo)
+  format: int16           # Audio format (int16, float32)
+  device_index: null      # Audio input device index (null = default)
+  vad_enabled: true       # Use voice activity detection
+  silence_threshold: 400  # Energy threshold for silence detection
+  dynamic_silence: true   # Adjust silence threshold dynamically
+  min_speech_duration: 0.1 # Minimum speech duration to start recording (seconds)
+  speech_pad_start: 0.1   # Seconds of audio to include before speech
+  speech_pad_end: 0.3     # Seconds of audio to include after speech ends
+
+# Output Settings
+output:
+  pre_type_delay: 0.1     # Delay before typing text (seconds)
+  final_action: null      # Action after typing (null, enter, space, tab)
+  capitalize_sentences: true # Automatically capitalize sentences
+  auto_punctuate: false   # Add punctuation automatically
+
+# Engine-Specific Settings
+
+# Google Speech API
+google:
+  use_enhanced: false     # Use enhanced model
+  profanity_filter: false # Filter profanity
+  timeout: 3.0            # API timeout in seconds
+
+# Whisper Settings
+whisper:
+  model: tiny             # Model size (tiny, base, small, medium, large)
+  use_api: false          # Use OpenAI API instead of local model
+  language: en            # Language hint for recognition
+  beam_size: 5            # Beam size for decoding
+
+# Deepgram Settings
+deepgram:
+  model: nova-2           # Model to use
+  tier: enhanced          # Service tier
+  keywords: []            # List of keywords to boost recognition of
+  
+# Groq Settings
+groq:
+  model: distil-whisper-large # Model name
+  api_key: null           # Groq API key (from env var GROQ_API_KEY if null)
+
+# Speechmatics Settings  
+speechmatics:
+  language: en            # Language code
+  operating_point: enhanced # Operating point (standard, enhanced)

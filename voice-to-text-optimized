@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""
+Voice to Text - A simple tool to convert speech to text and type it in the currently focused window.
+
+This script uses speech recognition to convert your voice to text
+and automatically types it in the currently focused input field.
+"""
+
+import argparse
+import time
+import sys
+import os
+import logging
+import subprocess
+import threading
+from typing import Optional
+import io
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("voice-to-text")
+
+# Function to suppress error output temporarily
+def with_stderr_suppressed(func, *args, **kwargs):
+    """Run a function with stderr temporarily redirected to suppress output."""
+    # Save the original stderr
+    original_stderr = sys.stderr
+    # Redirect stderr to a null device
+    sys.stderr = io.StringIO()
+    
+    try:
+        # Call the function with suppressed stderr
+        return func(*args, **kwargs)
+    finally:
+        # Restore stderr
+        sys.stderr = original_stderr
+
+# Context manager to suppress stderr
+class suppress_stderr:
+    """Context manager to suppress stderr output."""
+    def __enter__(self):
+        self.stderr_fd = sys.stderr.fileno()
+        self.saved_stderr = os.dup(self.stderr_fd)
+        self.devnull = open(os.devnull, 'w')
+        os.dup2(self.devnull.fileno(), self.stderr_fd)
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        os.dup2(self.saved_stderr, self.stderr_fd)
+        os.close(self.saved_stderr)
+        self.devnull.close()
+
+# Try to import required libraries, install if missing
+try:
+    # Import with stderr suppressed to hide ALSA/JACK errors
+    def import_libraries():
+        global sr, pyautogui
+        import speech_recognition as sr
+        import pyautogui
+        
+    with_stderr_suppressed(import_libraries)
+    
+except ImportError:
+    print("Required dependencies not found. Installing...")
+    subprocess.call([sys.executable, "-m", "pip", "install", "--user", "SpeechRecognition", "pyautogui"])
+    try:
+        with_stderr_suppressed(import_libraries)
+    except ImportError:
+        print("Error: Failed to import required libraries.")
+        print("Try installing them manually:")
+        print("  pip install --user SpeechRecognition pyautogui")
+        print("Note: You also need PyAudio and PortAudio:")
+        print("  sudo apt-get install portaudio19-dev python3-pyaudio")
+        sys.exit(1)
+
+class VoiceToText:
+    def __init__(self, engine="google", timeout=3, continuous=True, 
+                 phrase_threshold=0.2, pause_threshold=0.6, 
+                 dynamic_energy=True):
+        """
+        Initialize the Voice to Text tool.
+        
+        Args:
+            engine (str): Speech recognition engine to use
+            timeout (int): Maximum time to listen for speech in seconds
+            continuous (bool): Whether to listen continuously
+            phrase_threshold (float): Seconds of speech needed to trigger recognition
+            pause_threshold (float): Seconds of silence to mark end of phrase
+            dynamic_energy (bool): Dynamically adjust energy threshold
+        """
+        with suppress_stderr():
+            self.recognizer = sr.Recognizer()
+            
+        self.engine = engine
+        self.timeout = timeout
+        self.continuous = continuous
+        self.is_running = False
+        self.dynamic_energy = dynamic_energy
+        
+        # Configure recognizer for faster detection and response
+        self.recognizer.pause_threshold = pause_threshold
+        self.recognizer.phrase_threshold = phrase_threshold
+        self.recognizer.non_speaking_duration = 0.4
+        self.recognizer.operation_timeout = 3  # Faster API timeout (Google)
+        
+        # For dynamic energy thresholds
+        if dynamic_energy:
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.dynamic_energy_adjustment_ratio = 1.5
+        else:
+            self.recognizer.dynamic_energy_threshold = False
+            self.recognizer.energy_threshold = 400  # Higher threshold to avoid background noise
+        
+        # Disable PyAutoGUI failsafe
+        pyautogui.FAILSAFE = False
+        
+        logger.info(f"Voice to Text initialized with {engine} engine")
+        
+    def recognize_speech(self) -> Optional[str]:
+        """
+        Recognize speech and convert to text.
+        
+        Returns:
+            str: Recognized text or None if no speech detected
+        """
+        # Create microphone instance with suppressed errors
+        def create_mic():
+            return sr.Microphone()
+            
+        mic = with_stderr_suppressed(create_mic)
+        
+        with mic as source:
+            # Only adjust for ambient noise once in continuous mode, and do it faster
+            if not hasattr(self, 'ambient_adjusted') or not self.continuous:
+                logger.info("Adjusting for ambient noise...")
+                # Shorter adjustment time for faster startup
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                self.ambient_adjusted = True
+                
+            if not self.continuous:
+                logger.info(f"Listening (timeout: {self.timeout}s)...")
+            else:
+                # In continuous mode, be less verbose
+                if not hasattr(self, 'first_listen') or not self.first_listen:
+                    logger.info("Listening for speech...")
+                    self.first_listen = True
+            
+            try:
+                # Use shorter timeout and phrase limits for continuous mode
+                if self.continuous:
+                    audio = self.recognizer.listen(source, timeout=1.5, phrase_time_limit=8.0)
+                else:
+                    audio = self.recognizer.listen(source, timeout=self.timeout)
+                    
+                logger.debug("Audio captured, recognizing...")
+                
+                # Audio captured, dispatch to recognition service
+                if self.engine == "google":
+                    text = self.recognizer.recognize_google(audio)
+                elif self.engine == "sphinx":
+                    text = self.recognizer.recognize_sphinx(audio)
+                else:
+                    logger.warning(f"Unknown engine: {self.engine}. Using Google.")
+                    text = self.recognizer.recognize_google(audio)
+                    
+                logger.info(f"Recognized: {text}")
+                return text
+            except sr.WaitTimeoutError:
+                # Be less verbose in continuous mode
+                if not self.continuous:
+                    logger.info("No speech detected within timeout period")
+                return None
+            except sr.UnknownValueError:
+                logger.debug("Could not understand audio")
+                return None
+            except sr.RequestError as e:
+                logger.error(f"Recognition service error: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Error during speech recognition: {e}")
+                return None
+    
+    def type_text(self, text):
+        """
+        Type the recognized text in the current window.
+        
+        Args:
+            text (str): Text to type
+        """
+        if not text:
+            return
+            
+        try:
+            # Minimal pause before typing
+            time.sleep(0.1)
+            
+            # Type the text
+            logger.info(f"Typing text: {text}")
+            pyautogui.write(text)
+            
+            # Optional: simulate pressing Enter if needed
+            # pyautogui.press('enter')
+            
+            logger.info("Text typed successfully")
+        except Exception as e:
+            logger.error(f"Error typing text: {e}")
+    
+    def start(self):
+        """Start the voice to text tool."""
+        logger.info("Starting Voice to Text...")
+        self.is_running = True
+        
+        try:
+            if self.continuous:
+                print("===============================================")
+                print("Voice to Text running. Speak into your microphone.")
+                print("Text will be automatically typed into the focused input.")
+                print("Press Ctrl+C to stop.")
+                print("===============================================")
+                
+                # Main continuous listening loop with improved responsiveness
+                while self.is_running:
+                    try:
+                        text = self.recognize_speech()
+                        if text:
+                            self.type_text(text)
+                            # Minimal pause between recognition attempts
+                            time.sleep(0.1)
+                    except Exception as e:
+                        logger.error(f"Error in continuous listening: {e}")
+                        # Prevent CPU spinning on repeated errors
+                        time.sleep(0.2)
+            else:
+                text = self.recognize_speech()
+                if text:
+                    self.type_text(text)
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+        except Exception as e:
+            logger.error(f"Error: {e}")
+        finally:
+            self.stop()
+    
+    def stop(self):
+        """Stop the voice to text tool."""
+        self.is_running = False
+        logger.info("Voice to Text stopped")
+
+def main():
+    """Main function."""
+    parser = argparse.ArgumentParser(description="Convert speech to text and type it in the current window")
+    parser.add_argument("--engine", "-e", choices=["google", "sphinx"], 
+                      default="google", help="Speech recognition engine to use")
+    parser.add_argument("--timeout", "-t", type=int, default=3, 
+                      help="Timeout in seconds for speech recognition (default: 3)")
+    parser.add_argument("--no-continuous", "-n", action="store_true", 
+                      help="Run in single shot mode instead of continuous mode")
+    parser.add_argument("--phrase-threshold", "-p", type=float, default=0.2,
+                      help="Seconds of speech to trigger recognition (default: 0.2)")
+    parser.add_argument("--pause-threshold", "-P", type=float, default=0.6,
+                      help="Seconds of silence to mark end of phrase (default: 0.6)")
+    parser.add_argument("--fixed-energy", "-f", action="store_true",
+                      help="Use fixed energy threshold instead of dynamic adjustment")
+    parser.add_argument("--debug", "-d", action="store_true", 
+                      help="Enable debug logging")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                      help="Suppress ALSA errors and warnings")
+    
+    args = parser.parse_args()
+    
+    # Set debug logging if requested
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    
+    # If quiet mode requested, completely redirect stderr for the entire process
+    if args.quiet:
+        sys.stderr = open(os.devnull, 'w')
+    
+    # Make continuous mode the default experience
+    continuous_mode = not args.no_continuous
+    
+    voice_to_text = VoiceToText(
+        engine=args.engine,
+        timeout=args.timeout,
+        continuous=continuous_mode,
+        phrase_threshold=args.phrase_threshold,
+        pause_threshold=args.pause_threshold,
+        dynamic_energy=not args.fixed_energy
+    )
+    
+    voice_to_text.start()
+
+if __name__ == "__main__":
+    main()
