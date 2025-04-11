@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""
+Voice to Text - A simple tool to convert speech to text and type it in the currently focused window.
+
+This script uses speech recognition to convert your voice to text
+and automatically types it in the currently focused input field.
+"""
+
+import argparse
+import time
+import sys
+import os
+import logging
+import subprocess
+from typing import Optional
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("voice-to-text")
+
+# Try to import required libraries, install if missing
+try:
+    import speech_recognition as sr
+    import pyautogui
+except ImportError:
+    print("Required dependencies not found. Installing...")
+    subprocess.call([sys.executable, "-m", "pip", "install", "--user", "SpeechRecognition", "pyaudio", "pyautogui"])
+    import speech_recognition as sr
+    import pyautogui
+
+class VoiceToText:
+    def __init__(self, engine="google", timeout=5, continuous=False):
+        """
+        Initialize the Voice to Text tool.
+        
+        Args:
+            engine (str): Speech recognition engine to use
+            timeout (int): Maximum time to listen for speech in seconds
+            continuous (bool): Whether to listen continuously or just once
+        """
+        self.recognizer = sr.Recognizer()
+        self.engine = engine
+        self.timeout = timeout
+        self.continuous = continuous
+        self.is_running = False
+        
+        # Disable PyAutoGUI failsafe
+        pyautogui.FAILSAFE = False
+        
+        logger.info(f"Voice to Text initialized with {engine} engine")
+        
+    def recognize_speech(self) -> Optional[str]:
+        """
+        Recognize speech and convert to text.
+        
+        Returns:
+            str: Recognized text or None if no speech detected
+        """
+        with sr.Microphone() as source:
+            logger.info("Adjusting for ambient noise... Please wait.")
+            self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            logger.info(f"Listening (timeout: {self.timeout}s)...")
+            
+            try:
+                audio = self.recognizer.listen(source, timeout=self.timeout)
+                logger.info("Audio captured, recognizing...")
+                
+                if self.engine == "google":
+                    text = self.recognizer.recognize_google(audio)
+                elif self.engine == "sphinx":
+                    text = self.recognizer.recognize_sphinx(audio)
+                else:
+                    logger.warning(f"Unknown engine: {self.engine}. Using Google.")
+                    text = self.recognizer.recognize_google(audio)
+                    
+                logger.info(f"Recognized: {text}")
+                return text
+            except sr.WaitTimeoutError:
+                logger.info("No speech detected within timeout period")
+                return None
+            except sr.UnknownValueError:
+                logger.info("Could not understand audio")
+                return None
+            except sr.RequestError as e:
+                logger.error(f"Recognition service error: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Error during speech recognition: {e}")
+                return None
+    
+    def type_text(self, text):
+        """
+        Type the recognized text in the current window.
+        
+        Args:
+            text (str): Text to type
+        """
+        if not text:
+            return
+            
+        try:
+            # Pause slightly before typing to ensure the window is ready
+            time.sleep(0.2)
+            
+            # Type the text
+            logger.info(f"Typing text: {text}")
+            pyautogui.write(text)
+            
+            # Optional: simulate pressing Enter if needed
+            # pyautogui.press('enter')
+            
+            logger.info("Text typed successfully")
+        except Exception as e:
+            logger.error(f"Error typing text: {e}")
+    
+    def start(self):
+        """Start the voice to text tool."""
+        logger.info("Starting Voice to Text...")
+        self.is_running = True
+        
+        try:
+            if self.continuous:
+                logger.info("Running continuously. Press Ctrl+C to stop.")
+                while self.is_running:
+                    text = self.recognize_speech()
+                    if text:
+                        self.type_text(text)
+            else:
+                text = self.recognize_speech()
+                if text:
+                    self.type_text(text)
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+        except Exception as e:
+            logger.error(f"Error: {e}")
+        finally:
+            self.stop()
+    
+    def stop(self):
+        """Stop the voice to text tool."""
+        self.is_running = False
+        logger.info("Voice to Text stopped")
+
+def main():
+    """Main function."""
+    parser = argparse.ArgumentParser(description="Convert speech to text and type it in the current window")
+    parser.add_argument("--engine", "-e", choices=["google", "sphinx"], 
+                      default="google", help="Speech recognition engine to use")
+    parser.add_argument("--timeout", "-t", type=int, default=5, 
+                      help="Timeout in seconds for speech recognition")
+    parser.add_argument("--continuous", "-c", action="store_true", 
+                      help="Listen continuously until stopped")
+    parser.add_argument("--debug", "-d", action="store_true", 
+                      help="Enable debug logging")
+    
+    args = parser.parse_args()
+    
+    # Set debug logging if requested
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+    
+    voice_to_text = VoiceToText(
+        engine=args.engine,
+        timeout=args.timeout,
+        continuous=args.continuous
+    )
+    
+    voice_to_text.start()
+
+if __name__ == "__main__":
+    main()
