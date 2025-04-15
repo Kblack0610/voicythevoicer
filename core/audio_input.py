@@ -30,19 +30,19 @@ class AudioConfig:
     chunk_size: int = 1024  # Samples per chunk
     
     # Speech detection parameters
-    silence_threshold: float = 300  # Energy threshold for silence
+    silence_threshold: float = 350  # Energy threshold for silence
     dynamic_silence: bool = True  # Adjust silence threshold dynamically
-    min_speech_duration: float = 0.05  # Minimum speech to start recording
-    speech_pad_start: float = 0.1  # Seconds of audio to include before speech
-    speech_pad_end: float = 0.2  # Seconds of audio to include after speech ends
+    min_speech_duration: float = 0.08  # Minimum speech to start recording
+    speech_pad_start: float = 0.15  # Seconds of audio to include before speech
+    speech_pad_end: float = 0.25  # Seconds of audio to include after speech ends
     
     # Hardware settings
     device_index: Optional[int] = None  # Input device index (None for default)
-    timeout: float = 2.0  # Timeout for listening operations
+    timeout: float = 2.5  # Timeout for listening operations
     
     # Advanced settings
     vad_enabled: bool = True  # Use voice activity detection
-    vad_mode: int = 1  # VAD aggressiveness (0-3)
+    vad_mode: int = 0  # VAD aggressiveness (0-3) - lowered to 0 for maximum sensitivity
     vad_frame_ms: int = 30  # VAD frame size in milliseconds
 
 
@@ -137,7 +137,11 @@ class VoiceActivityDetector:
         # Only update for non-speech frames (to track ambient noise)
         if current_energy < self._energy_threshold:
             # Slow adjustment toward ambient level (exponential moving average)
-            self._energy_threshold = 0.95 * self._energy_threshold + 0.05 * (1.5 * current_energy)
+            # Adjusted to be more responsive to ambient noise levels
+            self._energy_threshold = 0.9 * self._energy_threshold + 0.1 * (1.2 * current_energy)
+        
+        # Make sure threshold doesn't go too high or too low
+        self._energy_threshold = max(min(self._energy_threshold, 400), 250)
 
 
 class AudioInput:
